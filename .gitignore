@@ -49,3 +49,6 @@ Thumbs.db
 *.wmv
 
 extra_files/
+.vscode/
+*.cgi
+http_server
