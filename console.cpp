@@ -38,7 +38,7 @@ public:
         }
 
     void start() {
-        #if 1
+        #if 0
         cerr << "Sesion " << session_id << " start" << endl;
         #endif
         do_resolve();
@@ -79,11 +79,12 @@ public:
         sock.async_read_some(boost::asio::buffer(data_buffer, BUFFER_SIZE),
             [this, self](boost::system::error_code ec, size_t length) {
                 if (!ec) {
+                    cerr << "Data buffer: " << data_buffer << endl;
                     full_message += data_buffer;
                     memset(data_buffer, '\0', length);
 
                     if (full_message.find("% ") != string::npos) {
-                        print_result();
+                        print_result(full_message);
                         full_message.clear();
                         do_write();
                     }
@@ -142,15 +143,18 @@ public:
         boost::algorithm::replace_all(input,"\n","<br>");
     }
 
-    void print_result() {
-        string2html(full_message);
+    void print_result(string content) {
+        #if 0
+        cerr << "Recv result: " << content << endl;
+        #endif 
+        string2html(content);
         printf("<script>document.getElementById('s%d').innerHTML += '%s';</script>",
-            session_id, full_message.c_str());
+            session_id, content.c_str());
         cout.flush();
     }
 
     void print_command(string command) {
-        #if 1
+        #if 0
         cerr << "Send command: " << command << endl;
         #endif 
         string2html(command);
@@ -202,7 +206,7 @@ void parse_query() {
     string query = getenv("QUERY_STRING");
     string host, port, fname;
     int counter = 0;
-    #if 1
+    #if 0
     cerr << query << endl;
     #endif
 
@@ -318,7 +322,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    #if 1
+    #if 0
     debug_clients();
     #endif
 
