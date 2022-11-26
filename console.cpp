@@ -37,6 +37,9 @@ public:
         }
 
     void start() {
+        #if 1
+        cerr << "Sesion " << session_id << " start" << endl;
+        #endif
         do_resolve();
     }
 
@@ -193,7 +196,7 @@ vector<string> my_split(string str, char delimeter) {
 void parse_query() {
     vector<string> raw_queries;
     string query = getenv("QUERY_STRING");
-    #if 0
+    #if 1
     cerr << query << endl;
     #endif
 
@@ -203,7 +206,7 @@ void parse_query() {
         int x = s.find("=");
         string value;
         if (s.length() == 3) {
-            value = "";
+            continue;
         } else {
             value = s.substr(x+1, s.length() - x - 1);
         }
@@ -290,8 +293,8 @@ void print_table(int session_id, string host, string port){
 
 int main(int argc, char *argv[]) {
     // setenv("QUERY_STRING", "h0=nplinux1.cs.nctu.edu.tw&p0=65531&f0=t1.txt&h1=nplinux2.cs.nctu.edu.tw&p1=65532&f1=t2.txt&h2=nplinux3.cs.nctu.edu.tw&p2=65533&f2=t3.txt&h3=nplinux4.cs.nctu.edu.tw&p3=65534&f3=t4.txt&h4=nplinux5.cs.nctu.edu.tw&p4=65535&f4=t5.txt", 1);
-    // setenv("QUERY_STRING", "h0=localhost&p0=65531&f0=t1.txt&h1=localshost&p1=65532&f1=t2.txt", 1);
-    // setenv("QUERY_STRING", "h0=localhost&p0=65531&f0=t1.txt", 1);
+    // setenv("QUERY_STRING", "h0=nplinux2.cs.nctu.edu.tw&p0=65531&f0=t1.txt&h1=&p1=&f1=&h2=&p2=&f2=&h3=&p3=&f3=&h4=&p4=&f4=", 1);
+    // setenv("QUERY_STRING", "h0=nplinux2.cs.nctu.edu.tw&p0=65531&f0=t1.txt", 1);
     init_global();
     parse_query();
     print_html();
@@ -301,7 +304,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    #if 0
+    #if 1
     debug_clients();
     #endif
 

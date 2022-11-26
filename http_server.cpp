@@ -16,7 +16,7 @@ bool is_file_excutable(string fname) {
   struct stat st;
 
   if (stat(fname.c_str(), &st) < 0) {
-    perror("is_file_excutable");
+    // perror("is_file_excutable");
     return false;
   }
   if ((st.st_mode & S_IEXEC) != 0) {
@@ -68,7 +68,7 @@ private:
 
     // Parse first line
     sscanf(data, "%s %s %s\r\n", request_method, request_uri, server_protocol);
-    #if 1
+    #if 0
     cout << "Method: " << request_method << endl
         << "Protocol: " << server_protocol << endl;
     #endif
@@ -78,7 +78,7 @@ private:
     bzero(tmp, 64);
     sscanf(request_uri, "%[^?]?%s", tmp, query_string);
     prog_name = "." + string(tmp);
-    #if 1
+    #if 0
     cout << "URI: " << request_uri << endl
         << "Program Name: " << prog_name << endl
         << "Query String: " << query_string << endl;
@@ -90,7 +90,7 @@ private:
     remote_addr = sock.remote_endpoint().address().to_string();
     remote_port = to_string(static_cast<unsigned short>(sock.remote_endpoint().port()));
     http_host = server_addr + ":" + server_port;
-    #if 1
+    #if 0
     cout << "Server: " << server_addr << ":" << server_port << endl;
     cout << "Remote: " << remote_addr << ":" << remote_port << endl;
     #endif
@@ -161,7 +161,7 @@ private:
                   cout << "HTTP/1.1 500 Internal Server Error\r\n\r\n";
                 }
               } else {
-                cerr << prog_name << " is not executable" << endl;
+                // cerr << prog_name << " is not executable" << endl;
               }
             }
 
