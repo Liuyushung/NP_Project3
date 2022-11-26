@@ -19,7 +19,8 @@ typedef struct client_info {
     string fname;
     bool   is_active;
 } ClientInfo;
-ClientInfo clients[MAX_SERVER];
+// ClientInfo clients[MAX_SERVER];
+vector<ClientInfo> clients;
 
 class session: public enable_shared_from_this<session> {
 public:
@@ -132,13 +133,13 @@ public:
     }
 
     void string2html(string &input) {
-        // boost::replace_all(full_message, "\r\n", " ");
-        boost::replace_all(input, "\n", "&NewLine;");
-        // boost::replace_all(full_message, "\r", " ");
-        boost::replace_all(input, "\"", "&quot;");
-        boost::replace_all(input, "'", "&#x27;");
-        boost::replace_all(input, "<", "&lt;");
-        boost::replace_all(input, ">", "&gt;");
+        boost::algorithm::replace_all(input,"&","&amp;");
+        boost::algorithm::replace_all(input,"<","&lt;");
+        boost::algorithm::replace_all(input,">","&gt;");
+        boost::algorithm::replace_all(input,"\"","&quot;");
+        boost::algorithm::replace_all(input,"\'","&apos;");
+        boost::algorithm::replace_all(input,"\r\n","\n");
+        boost::algorithm::replace_all(input,"\n","<br>");
     }
 
     void print_result() {
@@ -149,6 +150,9 @@ public:
     }
 
     void print_command(string command) {
+        #if 1
+        cerr << "Send command: " << command << endl;
+        #endif 
         string2html(command);
         printf("<script>document.getElementById('s%d').innerHTML += '<b>%s</b>';</script>",
             session_id, command.c_str());
@@ -178,7 +182,7 @@ void debug_clients() {
 }
 
 void init_global() {
-    bzero(clients, sizeof(ClientInfo)*5);
+    // bzero(clients, sizeof(ClientInfo)*5);
 }
 
 vector<string> my_split(string str, char delimeter) {
@@ -196,6 +200,8 @@ vector<string> my_split(string str, char delimeter) {
 void parse_query() {
     vector<string> raw_queries;
     string query = getenv("QUERY_STRING");
+    string host, port, fname;
+    int counter = 0;
     #if 1
     cerr << query << endl;
     #endif
@@ -211,20 +217,28 @@ void parse_query() {
             value = s.substr(x+1, s.length() - x - 1);
         }
 
-        switch (s[0]) {
-            case 'h':
+        switch (counter % ATTRIBUTES_SIZE) {
+            case 0:
                 /* host */
-                clients[(int) (s[x-1] - '0')].host = value;
-                clients[(int) (s[x-1] - '0')].is_active = true;
+                host = value;
                 break;
-            case 'p':
+            case 1:
                 /* port */
-                clients[(int) (s[x-1] - '0')].port = value;
+                port = value;
                 break;
-            case 'f':
+            case 2:
                 /* file */
-                clients[(int) (s[x-1] - '0')].fname = value;
+                fname = value;
                 break;
+        }
+        ++counter;
+
+        if (host != "" && port != "" && fname != "") {
+            ClientInfo client = { host, port, fname, true };
+            clients.push_back(client);
+            host.clear();
+            port.clear();
+            fname.clear();
         }
     }
 
@@ -293,12 +307,12 @@ void print_table(int session_id, string host, string port){
 
 int main(int argc, char *argv[]) {
     // setenv("QUERY_STRING", "h0=nplinux1.cs.nctu.edu.tw&p0=65531&f0=t1.txt&h1=nplinux2.cs.nctu.edu.tw&p1=65532&f1=t2.txt&h2=nplinux3.cs.nctu.edu.tw&p2=65533&f2=t3.txt&h3=nplinux4.cs.nctu.edu.tw&p3=65534&f3=t4.txt&h4=nplinux5.cs.nctu.edu.tw&p4=65535&f4=t5.txt", 1);
+    // setenv("QUERY_STRING", "h0=nplinux2.cs.nctu.edu.tw&p0=43645&f0=t1.txt&h1=nplinux2.cs.nctu.edu.tw&p1=44899&f1=t2.txt&h2=nplinux2.cs.nctu.edu.tw&p2=35451&f2=t3.txt&h3=&p3=&f3=&h4=&p4=&f4=", 1);
     // setenv("QUERY_STRING", "h0=nplinux2.cs.nctu.edu.tw&p0=65531&f0=t1.txt&h1=&p1=&f1=&h2=&p2=&f2=&h3=&p3=&f3=&h4=&p4=&f4=", 1);
-    // setenv("QUERY_STRING", "h0=nplinux2.cs.nctu.edu.tw&p0=65531&f0=t1.txt", 1);
     init_global();
     parse_query();
     print_html();
-    for (int i = 0; i < MAX_SERVER; i++) {
+    for (size_t i = 0; i < clients.size(); i++) {
         if (clients[i].is_active) {
             print_table(i, clients[i].host, clients[i].port);
         }
@@ -311,7 +325,7 @@ int main(int argc, char *argv[]) {
     try {
         boost::asio::io_context io_context;
 
-        for (int i = 0; i < MAX_SERVER; i++) {
+        for (size_t i = 0; i < clients.size(); i++) {
             if (clients[i].is_active) {
                 make_shared<session>(io_context, i)->start();
             }
