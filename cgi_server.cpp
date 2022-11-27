@@ -45,27 +45,23 @@ vector<string> my_split(string str, char delimeter) {
 
 class shellSession: public enable_shared_from_this<shellSession> {
 public:
-    shellSession(boost::asio::io_context& io_context, tcp::socket c_sock, string query):
+    shellSession(boost::asio::io_context& io_context, tcp::socket c_sock):
         resolver_(io_context),
         client_sock(move(c_sock)) {
-            query_string = query;
-        }
+            close_counter = 0;
+            memset(data_buffer, '\0', BUFFER_SIZE);
 
-    void start() {
-        parse_query();
-        print_html();
-        print_table();
-        sleep(5);
-
-        for (size_t x=0; x < clients.size(); ++x) {
-            clients[x].sock = new tcp::socket(io_context);
-            clients[x].input_file = new ifstream;
-            clients[x].input_file->open(TEST_CASE_DIR + clients[x].fname, ios::in);
-            if (clients[x].input_file->fail()) {
-                perror("Open file");
+            for (size_t x=0; x < clients.size(); ++x) {
+                clients[x].sock = new tcp::socket(io_context);
+                clients[x].input_file = new ifstream;
+                clients[x].input_file->open(TEST_CASE_DIR + clients[x].fname, ios::in);
+                if (clients[x].input_file->fail()) {
+                    perror("Open file");
+                }
             }
         }
 
+    void start() {
         for (auto &c: clients) {
             do_resolve(c.ID);
         }
@@ -106,7 +102,17 @@ public:
         clients[session_id].sock->async_read_some(boost::asio::buffer(data_buffer, BUFFER_SIZE),
             [this, self, session_id](boost::system::error_code ec, size_t length) {
                 if (!ec) {
+                    #if 0
+                    cout << "DATA BUFFER START" << endl
+                        << data_buffer << endl
+                        << "DATA BUFFER END" << endl;
+                    #endif 
                     clients[session_id].full_message += data_buffer;
+                    #if 0
+                    cout << "FULL MESG START" << endl
+                        << clients[session_id].full_message << endl
+                        << "FULL MESG END" << endl;
+                    #endif 
                     memset(data_buffer, '\0', length);
 
                     if (clients[session_id].full_message.find("% ") != string::npos) {
@@ -157,6 +163,12 @@ public:
     void do_close(int session_id) {
         clients[session_id].input_file->close();
         clients[session_id].sock->close();
+        ++close_counter;
+
+        if(close_counter == clients.size()) {
+            cout << "shell session close client socket" << endl;
+            client_sock.close();
+        }
     }
 
     void string2html(string &input) {
@@ -170,6 +182,11 @@ public:
     }
 
     void print_result(int session_id, string content) {
+        #if 0
+        cout << "Start+++++++++++++++++++++++++++++++++" << endl
+            << content
+            << "+++++++++++++++++++++++++++++++++End" << endl;
+        #endif
         ostringstream oss;
         string result;
 
@@ -212,146 +229,11 @@ public:
         );
     }
 
-    void parse_query() {
-        vector<string> raw_queries;
-        string query = query_string;
-        string host, port, fname;
-        int counter = 0;
-        int id = 0;
-        #if 0
-        cerr << query << endl;
-        #endif
-
-        raw_queries = my_split(query, '&');
-
-        for (auto &s: raw_queries) {
-            int x = s.find("=");
-            string value;
-            if (s.length() == 3) {
-                continue;
-            } else {
-                value = s.substr(x+1, s.length() - x - 1);
-            }
-
-            switch (counter % ATTRIBUTES_SIZE) {
-                case 0:
-                    /* host */
-                    host = value;
-                    break;
-                case 1:
-                    /* port */
-                    port = value;
-                    break;
-                case 2:
-                    /* file */
-                    fname = value;
-                    break;
-            }
-            ++counter;
-
-            if (host != "" && port != "" && fname != "") {
-                ClientInfo client = { id, host, port, fname, "", NULL, NULL };
-                clients.push_back(client);
-                host.clear();
-                port.clear();
-                fname.clear();
-                ++id;
-            }
-        }
-
-        #if 1
-        for (size_t x=0; x < clients.size(); ++x) {
-            cerr << "ID: " << clients[x].ID
-                <<  "Host: " << clients[x].host
-                << " Port: " << clients[x].port
-                << " File: " << clients[x].fname << endl;
-        }
-        cerr << "Active sessions: " << clients.size() << endl;
-        #endif
-
-        return;
-    }
-
-    void print_html() {
-        ostringstream oss;
-        string result;
-
-        oss << "Content-type: text/html\r\n\r\n";
-        oss << "\
-    <!DOCTYPE html>\
-    <html lang=\"en\">\
-    <head>\
-        <meta charset=\"UTF-8\" />\
-        <title>NP Project 3 Console</title>\
-        <link\
-        rel=\"stylesheet\"\
-        href=\"https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css\"\
-        integrity=\"sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2\"\
-        crossorigin=\"anonymous\"\
-        />\
-        <link\
-        href=\"https://fonts.googleapis.com/css?family=Source+Code+Pro\"\
-        rel=\"stylesheet\"\
-        />\
-        <link\
-        rel=\"icon\"\
-        type=\"image/png\"\
-        href=\"https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png\"\
-        />\
-        <style>\
-        * {\
-            font-family: 'Source Code Pro', monospace;\
-            font-size: 1rem !important;\
-        }\
-        body {\
-            background-color: #212529;\
-        }\
-        pre {\
-            color: #cccccc;\
-        }\
-        b {\
-            color: #01b468;\
-        }\
-        </style>\
-    </head>\
-    <body>\
-        <table class=\"table table-dark table-bordered\">\
-        <thead>\
-            <tr id=\"table_head\"> </tr>\
-        </thead>\
-        <tbody>\
-            <tr id=\"session\"> </tr>\
-        </tbody>\
-        </table>\
-    </body>\
-    </html>";
-
-        result = oss.str();
-        do_write_client(result);
-    }
-
-    void print_table() {
-        ostringstream oss;
-        string result;
-
-        for (size_t x=0; x < clients.size(); ++x) {
-            oss << "<script>var table = document.getElementById('table_head'); table.innerHTML += '<th scope=\"col\">"
-                << clients[x].host << ":" << clients[x].port
-                << "</th>';</script>";
-            oss << "<script>var table = document.getElementById('session'); table.innerHTML += '<td><pre id=\\'s"
-                << clients[x].ID
-                << "\\' class=\\'mb-0\\'></pre></td>&NewLine;' </script>";
-        }
-        result = oss.str();
-
-        do_write_client(result);
-    }
-
 private:
     tcp::resolver resolver_;
     tcp::socket client_sock; // Between client and http server
     char data_buffer[BUFFER_SIZE];
-    string query_string;
+    size_t close_counter;
 };
 
 
@@ -395,7 +277,7 @@ private:
 
         // Parse first line
         sscanf(data, "%s %s %s\r\n", request_method, request_uri, server_protocol);
-        #if 1
+        #if 0
         cout << "Method: " << request_method << endl
                 << "Protocol: " << server_protocol << endl;
         #endif
@@ -405,7 +287,7 @@ private:
         memset(tmp, '\0', 64);
         sscanf(request_uri, "%[^?]?%s", tmp, query_string);
         prog_name = "." + string(tmp);
-        #if 1
+        #if 0
         cout << "URI: " << request_uri << endl
                 << "Program Name: " << prog_name << endl
                 << "Query String: " << query_string << endl;
@@ -417,7 +299,7 @@ private:
         remote_addr = sock.remote_endpoint().address().to_string();
         remote_port = to_string(static_cast<unsigned short>(sock.remote_endpoint().port()));
         http_host = server_addr + ":" + server_port;
-        #if 1
+        #if 0
         cout << "Server: " << server_addr << ":" << server_port << endl;
         cout << "Remote: " << remote_addr << ":" << remote_port << endl;
         #endif
@@ -575,7 +457,158 @@ private:
     }
 
     void handle_console_cgi() {
-        make_shared<shellSession>(io_context, move(sock), string(query_string))->start();
+        print_html();
+        parse_query(string(query_string));
+        print_table();
+        make_shared<shellSession>(io_context, move(sock))->start();
+    }
+
+    void parse_query(string query) {
+        vector<string> raw_queries;
+        string host, port, fname;
+        int counter = 0;
+        int id = 0;
+        #if 0
+        cerr << query << endl;
+        #endif
+
+        raw_queries = my_split(query, '&');
+
+        for (auto &s: raw_queries) {
+            int x = s.find("=");
+            string value;
+            if (s.length() == 3) {
+                continue;
+            } else {
+                value = s.substr(x+1, s.length() - x - 1);
+            }
+
+            switch (counter % ATTRIBUTES_SIZE) {
+                case 0:
+                    /* host */
+                    host = value;
+                    break;
+                case 1:
+                    /* port */
+                    port = value;
+                    break;
+                case 2:
+                    /* file */
+                    fname = value;
+                    break;
+            }
+            ++counter;
+
+            if (host != "" && port != "" && fname != "") {
+                ClientInfo client = { id, host, port, fname, "", NULL, NULL };
+                clients.push_back(client);
+                host.clear();
+                port.clear();
+                fname.clear();
+                ++id;
+            }
+        }
+
+        #if 0
+        for (size_t x=0; x < clients.size(); ++x) {
+            cerr << "ID: " << clients[x].ID
+                <<  "Host: " << clients[x].host
+                << " Port: " << clients[x].port
+                << " File: " << clients[x].fname << endl;
+        }
+        cerr << "Active sessions: " << clients.size() << endl;
+        #endif
+
+        return;
+    }
+
+    void print_html() {
+        ostringstream oss;
+        string result;
+
+        oss << "Content-type: text/html\r\n\r\n";
+        oss << "\
+    <!DOCTYPE html>\
+    <html lang=\"en\">\
+    <head>\
+        <meta charset=\"UTF-8\" />\
+        <title>NP Project 3 Console</title>\
+        <link\
+        rel=\"stylesheet\"\
+        href=\"https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css\"\
+        integrity=\"sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2\"\
+        crossorigin=\"anonymous\"\
+        />\
+        <link\
+        href=\"https://fonts.googleapis.com/css?family=Source+Code+Pro\"\
+        rel=\"stylesheet\"\
+        />\
+        <link\
+        rel=\"icon\"\
+        type=\"image/png\"\
+        href=\"https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png\"\
+        />\
+        <style>\
+        * {\
+            font-family: 'Source Code Pro', monospace;\
+            font-size: 1rem !important;\
+        }\
+        body {\
+            background-color: #212529;\
+        }\
+        pre {\
+            color: #cccccc;\
+        }\
+        b {\
+            color: #01b468;\
+        }\
+        </style>\
+    </head>\
+    <body>\
+        <table class=\"table table-dark table-bordered\">\
+        <thead>\
+            <tr id=\"table_head\"> </tr>\
+        </thead>\
+        <tbody>\
+            <tr id=\"session\"> </tr>\
+        </tbody>\
+        </table>\
+    </body>\
+    </html>";
+
+        result = oss.str();
+        do_cgi_console_write(result);
+    }
+
+    void print_table() {
+        ostringstream oss;
+        string result;
+
+        for (size_t x=0; x < clients.size(); ++x) {
+            oss << "<script>var table = document.getElementById('table_head'); table.innerHTML += '<th scope=\"col\">"
+                << clients[x].host << ":" << clients[x].port
+                << "</th>';</script>";
+            oss << "<script>var table = document.getElementById('session'); table.innerHTML += '<td><pre id=\\'s"
+                << clients[x].ID
+                << "\\' class=\\'mb-0\\'></pre></td>&NewLine;' </script>";
+        }
+        result = oss.str();
+
+        do_cgi_console_write(result);
+    }
+
+    void do_cgi_console_write(string content) {
+        auto self(shared_from_this());
+        boost::asio::async_write(sock, boost::asio::buffer(content.c_str(), content.length()),
+            [this, self](boost::system::error_code ec, size_t length) {
+                /* Write Handler */
+                if (!ec) {
+                    // do nothing
+                } else {
+                    cerr << "Do CGI console write, error: " << ec.message() << endl;
+                }
+            }
+        );
     }
 };
 
