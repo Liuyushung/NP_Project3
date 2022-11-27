@@ -25,6 +25,7 @@ typedef struct client_info {
     string full_message;
     tcp::socket *sock;
     ifstream *input_file;
+    char     data_buffer[BUFFER_SIZE];
 } ClientInfo;
 vector<ClientInfo> clients;
 
@@ -49,11 +50,15 @@ public:
         resolver_(io_context),
         client_sock(move(c_sock)) {
             close_counter = 0;
-            memset(data_buffer, '\0', BUFFER_SIZE);
 
             for (size_t x=0; x < clients.size(); ++x) {
                 clients[x].sock = new tcp::socket(io_context);
                 clients[x].input_file = new ifstream;
+
+                // Clean buffer
+                memset(clients[x].data_buffer, '\0', BUFFER_SIZE);
+
+                // Open File
                 clients[x].input_file->open(TEST_CASE_DIR + clients[x].fname, ios::in);
                 if (clients[x].input_file->fail()) {
                     perror("Open file");
@@ -68,6 +73,9 @@ public:
     }
 
     void do_resolve(int session_id) {
+        #if 0
+        cout << "Session: " << session_id << " do resolve" << endl;
+        #endif
         tcp::resolver::query q(clients[session_id].host, clients[session_id].port);
 
         auto self(shared_from_this());
@@ -83,14 +91,17 @@ public:
     }
 
     void do_connect(int session_id, tcp::resolver::iterator iter) {
+        #if 0
+        cout << "Session: " << session_id << " do connect" << endl;
+        #endif
         auto self(shared_from_this());
         clients[session_id].sock->async_connect(*iter,
             [this, self, iter, session_id](boost::system::error_code ec) {
                 if (!ec) {
                     do_read(session_id);
                 } else {
-                    cerr << "Do connect: code = " << ec.value() << " message: " << ec.message() << endl;
-                    clients[session_id].sock->close();
+                    cerr << "Do connect:  message: " << ec.message() << endl;
+                    // clients[session_id].sock->close();
                     do_connect(session_id, iter);
                 }
             }
@@ -98,22 +109,15 @@ public:
     }
 
     void do_read(int session_id) {
+        #if 0
+        cout << "Session: " << session_id << " do read" << endl;
+        #endif
         auto self(shared_from_this());
-        clients[session_id].sock->async_read_some(boost::asio::buffer(data_buffer, BUFFER_SIZE),
+        clients[session_id].sock->async_read_some(boost::asio::buffer(clients[session_id].data_buffer, BUFFER_SIZE),
             [this, self, session_id](boost::system::error_code ec, size_t length) {
                 if (!ec) {
-                    #if 0
-                    cout << "DATA BUFFER START" << endl
-                        << data_buffer << endl
-                        << "DATA BUFFER END" << endl;
-                    #endif 
-                    clients[session_id].full_message += data_buffer;
-                    #if 0
-                    cout << "FULL MESG START" << endl
-                        << clients[session_id].full_message << endl
-                        << "FULL MESG END" << endl;
-                    #endif 
-                    memset(data_buffer, '\0', length);
+                    clients[session_id].full_message += clients[session_id].data_buffer;
+                    memset(clients[session_id].data_buffer, '\0', length);
 
                     if (clients[session_id].full_message.find("% ") != string::npos) {
                         print_result(session_id, clients[session_id].full_message);
@@ -134,6 +138,9 @@ public:
     }
 
     void do_write(int session_id) {
+        #if 0
+        cout << "Session: " << session_id << " do write" << endl;
+        #endif
         string command;
 
         auto self(shared_from_this());
@@ -161,12 +168,20 @@ public:
     }
 
     void do_close(int session_id) {
+        #if 0
+        cout << "Session: " << session_id << " do close" << endl;
+        #endif
         clients[session_id].input_file->close();
         clients[session_id].sock->close();
         ++close_counter;
 
+        delete clients[session_id].input_file;
+        delete clients[session_id].sock;
+
         if(close_counter == clients.size()) {
+            #if 0
             cout << "shell session close client socket" << endl;
+            #endif
             client_sock.close();
         }
     }
@@ -182,11 +197,6 @@ public:
     }
 
     void print_result(int session_id, string content) {
-        #if 0
-        cout << "Start+++++++++++++++++++++++++++++++++" << endl
-            << content
-            << "+++++++++++++++++++++++++++++++++End" << endl;
-        #endif
         ostringstream oss;
         string result;
 
@@ -232,7 +242,6 @@ public:
 private:
     tcp::resolver resolver_;
     tcp::socket client_sock; // Between client and http server
-    char data_buffer[BUFFER_SIZE];
     size_t close_counter;
 };
 
@@ -306,7 +315,6 @@ private:
     }
 
     void do_read() {
-        // cout << "Do Read" << endl;
         auto self(shared_from_this());
         sock.async_read_some(boost::asio::buffer(data, max_length),
                 [this, self](boost::system::error_code ec, size_t length) {
@@ -319,7 +327,6 @@ private:
     }
 
     void do_write() {
-        // cout << "Do Write" << endl;
         auto self(shared_from_this());
         boost::asio::async_write(sock, boost::asio::buffer(http_200, strlen(http_200)),
             [this, self](boost::system::error_code ec, size_t length) {

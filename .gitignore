@@ -52,3 +52,4 @@ extra_files/
 .vscode/
 *.cgi
 http_server
+cgi_server
