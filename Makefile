@@ -11,7 +11,7 @@ part1:
 	$(CC) console.cpp -o console.cgi $(LINUX_INCLUDE_PARAMS) $(LINUX_LIB_PARAMS) $(LINUX_FLAGS)
 
 part2:
-	$(CC) cgi_server.cpp -o cgi_server
+	g++ cgi_server.cpp -o cgi_server -lws2_32 -lwsock32 -std=c++14
 
 clean:
 	rm $(EXE)
