@@ -3,35 +3,361 @@
 #include <memory>
 #include <utility>
 #include <strings.h>
-#include <boost/asio.hpp>
 #include <sys/stat.h>
+#include <fstream>
+#include <boost/asio.hpp>
+#include <boost/algorithm/string.hpp>
+
 
 #define MAX_SERVER  5
+#define ATTRIBUTES_SIZE 3
+#define BUFFER_SIZE     4096
 
 using boost::asio::ip::tcp;
 using boost::asio::io_service;
 using namespace std;
 
-boost::asio::io_service my_io_service;
-string TEST_CASE_DIR("./test_case");
+typedef struct client_info {
+    int    ID;
+    string host;
+    string port;
+    string fname;
+    string full_message;
+    tcp::socket *sock;
+    ifstream *input_file;
+} ClientInfo;
+vector<ClientInfo> clients;
 
-bool is_file_excutable(string fname) {
-    struct stat st;
+boost::asio::io_context io_context;
+string TEST_CASE_DIR("./test_case/");
 
-    if (stat(fname.c_str(), &st) < 0) {
-        // perror("is_file_excutable");
-        return false;
+vector<string> my_split(string str, char delimeter) {
+    stringstream ss(str);
+    string token;
+    vector<string> result;
+
+    while (getline(ss, token, delimeter)) {
+        result.push_back(token);
     }
-    if ((st.st_mode & S_IEXEC) != 0) {
-        return true;
-    }
-    
-    return false;
+
+    return result;
 }
 
-class session: public enable_shared_from_this<session> {
+class shellSession: public enable_shared_from_this<shellSession> {
 public:
-    session(tcp::socket socket): sock(move(socket)) {
+    shellSession(boost::asio::io_context& io_context, tcp::socket c_sock, string query):
+        resolver_(io_context),
+        client_sock(move(c_sock)) {
+            query_string = query;
+        }
+
+    void start() {
+        parse_query();
+        print_html();
+        print_table();
+        sleep(5);
+
+        for (size_t x=0; x < clients.size(); ++x) {
+            clients[x].sock = new tcp::socket(io_context);
+            clients[x].input_file = new ifstream;
+            clients[x].input_file->open(TEST_CASE_DIR + clients[x].fname, ios::in);
+            if (clients[x].input_file->fail()) {
+                perror("Open file");
+            }
+        }
+
+        for (auto &c: clients) {
+            do_resolve(c.ID);
+        }
+    }
+
+    void do_resolve(int session_id) {
+        tcp::resolver::query q(clients[session_id].host, clients[session_id].port);
+
+        auto self(shared_from_this());
+        resolver_.async_resolve(q,
+            [this, self, session_id](boost::system::error_code ec, tcp::resolver::iterator iter) {
+                if (!ec) {
+                    do_connect(session_id, iter);
+                } else {
+                    perror("Do resolve");
+                }
+            }
+        );
+    }
+
+    void do_connect(int session_id, tcp::resolver::iterator iter) {
+        auto self(shared_from_this());
+        clients[session_id].sock->async_connect(*iter,
+            [this, self, iter, session_id](boost::system::error_code ec) {
+                if (!ec) {
+                    do_read(session_id);
+                } else {
+                    cerr << "Do connect: code = " << ec.value() << " message: " << ec.message() << endl;
+                    clients[session_id].sock->close();
+                    do_connect(session_id, iter);
+                }
+            }
+        );
+    }
+
+    void do_read(int session_id) {
+        auto self(shared_from_this());
+        clients[session_id].sock->async_read_some(boost::asio::buffer(data_buffer, BUFFER_SIZE),
+            [this, self, session_id](boost::system::error_code ec, size_t length) {
+                if (!ec) {
+                    clients[session_id].full_message += data_buffer;
+                    memset(data_buffer, '\0', length);
+
+                    if (clients[session_id].full_message.find("% ") != string::npos) {
+                        print_result(session_id, clients[session_id].full_message);
+                        clients[session_id].full_message.clear();
+                        do_write(session_id);
+                    }
+
+                    do_read(session_id);
+                } else {
+                    if (ec.value() == boost::asio::error::eof) {
+                        do_close(session_id);
+                    } else {
+                        perror("Do read");
+                    }
+                }
+            }
+        );
+    }
+
+    void do_write(int session_id) {
+        string command;
+
+        auto self(shared_from_this());
+
+        if (clients[session_id].input_file->eof()) {
+            cerr << "Read EOF" << endl;
+            // TODO: close here?
+            return;
+        }
+        if (!getline(*clients[session_id].input_file, command)) {
+            perror("Do write, read from file");
+        }
+        command += "\n";
+        print_command(session_id, command);
+
+        clients[session_id].sock->async_write_some(boost::asio::buffer(command.c_str(), command.length()), 
+            [this,self](boost::system::error_code ec, size_t length) {
+                if (!ec) {
+                    // do nothing
+                } else {
+                    perror("Do write, write message");
+                }
+            }
+        );
+    }
+
+    void do_close(int session_id) {
+        clients[session_id].input_file->close();
+        clients[session_id].sock->close();
+    }
+
+    void string2html(string &input) {
+        boost::algorithm::replace_all(input,"&","&amp;");
+        boost::algorithm::replace_all(input,"<","&lt;");
+        boost::algorithm::replace_all(input,">","&gt;");
+        boost::algorithm::replace_all(input,"\"","&quot;");
+        boost::algorithm::replace_all(input,"\'","&apos;");
+        boost::algorithm::replace_all(input,"\r\n","\n");
+        boost::algorithm::replace_all(input,"\n","<br>");
+    }
+
+    void print_result(int session_id, string content) {
+        ostringstream oss;
+        string result;
+
+        string2html(content);
+        oss << "<script>document.getElementById('s"
+            << session_id
+            << "').innerHTML += '"
+            << content
+            << "';</script>";
+        result = oss.str();
+
+        do_write_client(result);
+    }
+
+    void print_command(int session_id, string command) {
+        ostringstream oss;
+        string result;
+
+        string2html(command);
+        oss << "<script>document.getElementById('s"
+            << session_id
+            << "').innerHTML += '<b>"
+            << command
+            << "</b>';</script>";
+        result = oss.str();
+
+        do_write_client(result);
+    }
+
+    void do_write_client(string content) {
+        auto self(shared_from_this());
+        client_sock.async_write_some(boost::asio::buffer(content.c_str(), content.length()),
+            [this,self](boost::system::error_code ec, size_t length) {
+                if (!ec) {
+                    // do nothing
+                } else {
+                    perror("Do write client");
+                }
+            }
+        );
+    }
+
+    void parse_query() {
+        vector<string> raw_queries;
+        string query = query_string;
+        string host, port, fname;
+        int counter = 0;
+        int id = 0;
+        #if 0
+        cerr << query << endl;
+        #endif
+
+        raw_queries = my_split(query, '&');
+
+        for (auto &s: raw_queries) {
+            int x = s.find("=");
+            string value;
+            if (s.length() == 3) {
+                continue;
+            } else {
+                value = s.substr(x+1, s.length() - x - 1);
+            }
+
+            switch (counter % ATTRIBUTES_SIZE) {
+                case 0:
+                    /* host */
+                    host = value;
+                    break;
+                case 1:
+                    /* port */
+                    port = value;
+                    break;
+                case 2:
+                    /* file */
+                    fname = value;
+                    break;
+            }
+            ++counter;
+
+            if (host != "" && port != "" && fname != "") {
+                ClientInfo client = { id, host, port, fname, "", NULL, NULL };
+                clients.push_back(client);
+                host.clear();
+                port.clear();
+                fname.clear();
+                ++id;
+            }
+        }
+
+        #if 1
+        for (size_t x=0; x < clients.size(); ++x) {
+            cerr << "ID: " << clients[x].ID
+                <<  "Host: " << clients[x].host
+                << " Port: " << clients[x].port
+                << " File: " << clients[x].fname << endl;
+        }
+        cerr << "Active sessions: " << clients.size() << endl;
+        #endif
+
+        return;
+    }
+
+    void print_html() {
+        ostringstream oss;
+        string result;
+
+        oss << "Content-type: text/html\r\n\r\n";
+        oss << "\
+    <!DOCTYPE html>\
+    <html lang=\"en\">\
+    <head>\
+        <meta charset=\"UTF-8\" />\
+        <title>NP Project 3 Console</title>\
+        <link\
+        rel=\"stylesheet\"\
+        href=\"https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css\"\
+        integrity=\"sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2\"\
+        crossorigin=\"anonymous\"\
+        />\
+        <link\
+        href=\"https://fonts.googleapis.com/css?family=Source+Code+Pro\"\
+        rel=\"stylesheet\"\
+        />\
+        <link\
+        rel=\"icon\"\
+        type=\"image/png\"\
+        href=\"https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png\"\
+        />\
+        <style>\
+        * {\
+            font-family: 'Source Code Pro', monospace;\
+            font-size: 1rem !important;\
+        }\
+        body {\
+            background-color: #212529;\
+        }\
+        pre {\
+            color: #cccccc;\
+        }\
+        b {\
+            color: #01b468;\
+        }\
+        </style>\
+    </head>\
+    <body>\
+        <table class=\"table table-dark table-bordered\">\
+        <thead>\
+            <tr id=\"table_head\"> </tr>\
+        </thead>\
+        <tbody>\
+            <tr id=\"session\"> </tr>\
+        </tbody>\
+        </table>\
+    </body>\
+    </html>";
+
+        result = oss.str();
+        do_write_client(result);
+    }
+
+    void print_table() {
+        ostringstream oss;
+        string result;
+
+        for (size_t x=0; x < clients.size(); ++x) {
+            oss << "<script>var table = document.getElementById('table_head'); table.innerHTML += '<th scope=\"col\">"
+                << clients[x].host << ":" << clients[x].port
+                << "</th>';</script>";
+            oss << "<script>var table = document.getElementById('session'); table.innerHTML += '<td><pre id=\\'s"
+                << clients[x].ID
+                << "\\' class=\\'mb-0\\'></pre></td>&NewLine;' </script>";
+        }
+        result = oss.str();
+
+        do_write_client(result);
+    }
+
+private:
+    tcp::resolver resolver_;
+    tcp::socket client_sock; // Between client and http server
+    char data_buffer[BUFFER_SIZE];
+    string query_string;
+};
+
+
+class htmlSession: public enable_shared_from_this<htmlSession> {
+public:
+    htmlSession(tcp::socket socket): sock(move(socket)) {
         memset(data, '\0', max_length);
         memset(empty, '\0', 1);
         memset(request_method, '\0', 8);
@@ -249,7 +575,7 @@ private:
     }
 
     void handle_console_cgi() {
-        cout << "Handle Console CGI" << endl;
+        make_shared<shellSession>(io_context, move(sock), string(query_string))->start();
     }
 };
 
@@ -267,7 +593,7 @@ private:
         acceptor_.async_accept(
             [this](boost::system::error_code ec, tcp::socket socket) {
                 if (!ec) {
-                    make_shared<session>(move(socket))->start();
+                    make_shared<htmlSession>(move(socket))->start();
                 }
 
                 do_accept();
@@ -278,15 +604,12 @@ private:
     tcp::acceptor acceptor_;
 };
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     try {
         if (argc != 2) {
             cerr << "Usage: http_server <port>\n";
             return 1;
         }
-
-        boost::asio::io_context io_context;
 
         server s(io_context, atoi(argv[1]));
 
