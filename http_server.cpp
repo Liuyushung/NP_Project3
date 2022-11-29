@@ -35,7 +35,7 @@ public:
         bzero(request_uri, 1024);
         bzero(query_string, 1024);
         bzero(server_protocol, 32);
-        // bzero(http_host, 128);
+        bzero(http_host, 128);
     }
 
     void start() {
@@ -53,8 +53,7 @@ private:
     char request_uri[1024];
     char query_string[1024];
     char server_protocol[32];
-    // char http_host[128];
-    string http_host;
+    char http_host[128];
     string prog_name;
     string server_addr;
     string server_port;
@@ -67,10 +66,18 @@ private:
         #endif
 
         // Parse first line
+        stringstream data_ss(data);
+        string tmp_s;
         sscanf(data, "%s %s %s\r\n", request_method, request_uri, server_protocol);
+        while(getline(data_ss, tmp_s)) {
+            if (sscanf(tmp_s.c_str(), "Host: %s", http_host) != 0) {
+                break;
+            }
+        }
         #if 0
         cout << "Method: " << request_method << endl
-                << "Protocol: " << server_protocol << endl;
+            << "Protocol: " << server_protocol << endl
+            << "Host: " << http_host << " " << strlen(http_host) << endl;
         #endif
 
         // Parse query string
@@ -89,7 +96,6 @@ private:
         server_port = to_string(static_cast<unsigned short>(sock.local_endpoint().port()));
         remote_addr = sock.remote_endpoint().address().to_string();
         remote_port = to_string(static_cast<unsigned short>(sock.remote_endpoint().port()));
-        http_host = server_addr + ":" + server_port;
         #if 0
         cout << "Server: " << server_addr << ":" << server_port << endl;
         cout << "Remote: " << remote_addr << ":" << remote_port << endl;
@@ -102,8 +108,7 @@ private:
         setenv("REQUEST_URI", request_uri, 1);
         setenv("QUERY_STRING", query_string, 1);
         setenv("SERVER_PROTOCOL", server_protocol, 1);
-        // setenv("HTTP_HOST", http_host, 1);
-        setenv("HTTP_HOST", http_host.c_str(), 1);
+        setenv("HTTP_HOST", http_host, 1);
         setenv("SERVER_ADDR", server_addr.c_str(), 1);
         setenv("SERVER_PORT", server_port.c_str(), 1);
         setenv("REMOTE_ADDR", remote_addr.c_str(), 1);
@@ -113,62 +118,62 @@ private:
     void do_read() {
         auto self(shared_from_this());
         sock.async_read_some(boost::asio::buffer(data, max_length),
-                [this, self](boost::system::error_code ec, size_t length) {
-                    /* Read Handler */
-                    if (!ec) {
-                        do_write();
-                    }
+            [this, self](boost::system::error_code ec, size_t length) {
+                /* Read Handler */
+                if (!ec) {
+                    do_write();
                 }
+            }
         );
     }
 
     void do_write() {
         auto self(shared_from_this());
         boost::asio::async_write(sock, boost::asio::buffer(http_200, strlen(http_200)),
-                [this, self](boost::system::error_code ec, size_t length) {
-                    /* Write Handler */
-                    if (!ec) {
-                        my_io_service.notify_fork(io_service::fork_prepare);
-                        pid_t pid = fork();
+            [this, self](boost::system::error_code ec, size_t length) {
+                /* Write Handler */
+                if (!ec) {
+                    my_io_service.notify_fork(io_service::fork_prepare);
+                    pid_t pid = fork();
 
-                        if (pid < 0) {
-                            perror("Session fork");
-                            exit(1);
-                        } else if (pid > 0) {
-                            /* Parent */
-                            my_io_service.notify_fork(io_service::fork_parent);
-                            sock.close();
-                        } else {
-                            /* Child */
-                            my_io_service.notify_fork(io_service::fork_child);
+                    if (pid < 0) {
+                        perror("Session fork");
+                        exit(1);
+                    } else if (pid > 0) {
+                        /* Parent */
+                        my_io_service.notify_fork(io_service::fork_parent);
+                        sock.close();
+                    } else {
+                        /* Child */
+                        my_io_service.notify_fork(io_service::fork_child);
 
-                            // Parse Request
-                            parse_request();
+                        // Parse Request
+                        parse_request();
 
-                            // Setup environment variables
-                            setup_environment();
+                        // Setup environment variables
+                        setup_environment();
 
-                            // Duplicate FD
-                            int sock_fd = sock.native_handle();
-                            dup2(sock_fd, STDIN_FILENO);
-                            dup2(sock_fd, STDOUT_FILENO);
-                            sock.close();
+                        // Duplicate FD
+                        int sock_fd = sock.native_handle();
+                        dup2(sock_fd, STDIN_FILENO);
+                        dup2(sock_fd, STDOUT_FILENO);
+                        sock.close();
 
-                            // Exec CGI program
-                            if (is_file_excutable(prog_name)) {
-                                if (execlp(prog_name.c_str(), prog_name.c_str(), NULL) < 0) {
-                                    perror("Exec Fail");
-                                    cout << "HTTP/1.1 500 Internal Server Error\r\n\r\n";
-                                }
-                            } else {
-                                // cerr << prog_name << " is not executable" << endl;
+                        // Exec CGI program
+                        if (is_file_excutable(prog_name)) {
+                            if (execlp(prog_name.c_str(), prog_name.c_str(), NULL) < 0) {
+                                perror("Exec Fail");
+                                cout << "HTTP/1.1 500 Internal Server Error\r\n\r\n";
                             }
+                        } else {
+                            // cerr << prog_name << " is not executable" << endl;
                         }
-
-                        // Read the next request
-                        do_read();
                     }
+
+                    // Read the next request
+                    do_read();
                 }
+            }
         );
     }
 };
@@ -185,13 +190,13 @@ public:
 private:
     void do_accept() {
         acceptor_.async_accept(
-                [this](boost::system::error_code ec, tcp::socket socket) {
-                    if (!ec) {
-                        make_shared<session>(move(socket))->start();
-                    }
-
-                    do_accept();
+            [this](boost::system::error_code ec, tcp::socket socket) {
+                if (!ec) {
+                    make_shared<session>(move(socket))->start();
                 }
+
+                do_accept();
+            }
         );
     }
 
