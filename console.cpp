@@ -79,15 +79,14 @@ public:
         sock.async_read_some(boost::asio::buffer(data_buffer, BUFFER_SIZE),
             [this, self](boost::system::error_code ec, size_t length) {
                 if (!ec) {
-                    cerr << "Data buffer: " << data_buffer << endl;
                     full_message += data_buffer;
                     memset(data_buffer, '\0', length);
 
+                    print_result(full_message);
                     if (full_message.find("% ") != string::npos) {
-                        print_result(full_message);
-                        full_message.clear();
                         do_write();
                     }
+                    full_message.clear();
 
                     do_read();
                 } else {

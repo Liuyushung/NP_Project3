@@ -119,11 +119,11 @@ public:
                     clients[session_id].full_message += clients[session_id].data_buffer;
                     memset(clients[session_id].data_buffer, '\0', length);
 
+                    print_result(session_id, clients[session_id].full_message);
                     if (clients[session_id].full_message.find("% ") != string::npos) {
-                        print_result(session_id, clients[session_id].full_message);
-                        clients[session_id].full_message.clear();
                         do_write(session_id);
                     }
+                    clients[session_id].full_message.clear();
 
                     do_read(session_id);
                 } else {
