@@ -5,12 +5,22 @@
 #include <strings.h>
 #include <boost/asio.hpp>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 using boost::asio::ip::tcp;
 using boost::asio::io_service;
 using namespace std;
 
 boost::asio::io_service my_io_service;
+
+void signal_server_handler(int sig) {
+    if (sig == SIGCHLD) {
+        int stat;
+        while(waitpid(-1, &stat, WNOHANG) > 0) {
+            // Remove zombie process
+        }
+    }
+}
 
 bool is_file_excutable(string fname) {
     struct stat st;
@@ -210,6 +220,7 @@ int main(int argc, char* argv[])
             cerr << "Usage: http_server <port>\n";
             return 1;
         }
+        signal(SIGCHLD, signal_server_handler);
 
         boost::asio::io_context io_context;
 
