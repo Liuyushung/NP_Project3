@@ -101,7 +101,7 @@ public:
                     do_read(session_id);
                 } else {
                     cerr << "Do connect:  message: " << ec.message() << endl;
-                    // clients[session_id].sock->close();
+                    clients[session_id].sock->close();
                     do_connect(session_id, iter);
                 }
             }
@@ -183,6 +183,7 @@ public:
             cout << "shell session close client socket" << endl;
             #endif
             client_sock.close();
+            clients.clear();
         }
     }
 
