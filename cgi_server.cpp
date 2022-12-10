@@ -44,6 +44,10 @@ vector<string> my_split(string str, char delimeter) {
     return result;
 }
 
+inline void show_error(char *func_name, int code, string msg) {
+    fprintf(stderr, "[%s]: (%d, %s)\n", func_name, code, msg.c_str());
+}
+
 class shellSession: public enable_shared_from_this<shellSession> {
 public:
     shellSession(boost::asio::io_context& io_context, tcp::socket c_sock):
@@ -84,7 +88,7 @@ public:
                 if (!ec) {
                     do_connect(session_id, iter);
                 } else {
-                    perror("Do resolve");
+                    show_error("shellSession:do_resolve", ec.value(), ec.message().c_str());
                 }
             }
         );
@@ -100,7 +104,7 @@ public:
                 if (!ec) {
                     do_read(session_id);
                 } else {
-                    cerr << "Do connect:  message: " << ec.message() << endl;
+                    show_error("shellSession:do_connect", ec.value(), ec.message().c_str());
                     clients[session_id].sock->close();
                     do_connect(session_id, iter);
                 }
@@ -130,7 +134,7 @@ public:
                     if (ec.value() == boost::asio::error::eof) {
                         do_close(session_id);
                     } else {
-                        perror("Do read");
+                        show_error("shellSession:do_read", ec.value(), ec.message().c_str());
                     }
                 }
             }
@@ -161,7 +165,7 @@ public:
                 if (!ec) {
                     // do nothing
                 } else {
-                    perror("Do write, write message");
+                    show_error("shellSession:do_write", ec.value(), ec.message().c_str());
                 }
             }
         );
@@ -234,7 +238,7 @@ public:
                 if (!ec) {
                     // do nothing
                 } else {
-                    perror("Do write client");
+                    show_error("shellSession:do_write_client", ec.value(), ec.message().c_str());
                 }
             }
         );
@@ -322,6 +326,8 @@ private:
                     /* Read Handler */
                     if (!ec) {
                         do_write();
+                    } else {
+                        show_error("htmlSession:do_read", ec.value(), ec.message().c_str());
                     }
                 }
         );
@@ -342,7 +348,8 @@ private:
                     } else {
                         // Ignore other CGI program
                     }
-
+                } else {
+                    show_error("htmlSession:do_write", ec.value(), ec.message().c_str());
                 }
             }
         );

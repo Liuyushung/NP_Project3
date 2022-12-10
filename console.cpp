@@ -21,10 +21,12 @@ typedef struct client_info {
 } ClientInfo;
 // ClientInfo clients[MAX_SERVER];
 vector<ClientInfo> clients;
+boost::asio::io_context io_context;
+boost::asio::deadline_timer timer(io_context);
 
 class session: public enable_shared_from_this<session> {
 public:
-    session(boost::asio::io_context& io_context, int session_id):
+    session(int session_id):
         resolver_(io_context),
         sock(io_context) {
             string test_path = "./test_case/";
@@ -114,17 +116,25 @@ public:
             perror("Do write, read from file");
         }
         command += "\n";
-        print_command(command);
+        timer.expires_from_now(boost::posix_time::seconds(1));
+        timer.async_wait([this, self, command](boost::system::error_code wec) {
+            if (!wec) {
+                print_command(command);
 
-        sock.async_write_some(boost::asio::buffer(command.c_str(), command.length()), 
-            [this,self](boost::system::error_code ec, size_t length) {
-                if (!ec) {
-                    // do nothing
-                } else {
-                    perror("Do write, write message");
-                }
+                sock.async_write_some(boost::asio::buffer(command.c_str(), command.length()), 
+                    [this,self](boost::system::error_code ec, size_t length) {
+                        if (!ec) {
+                            // do nothing
+                        } else {
+                            perror("Do write, write message");
+                        }
+                    }
+                );
+            } else {
+                cerr << "[async_wait]: " << wec.message() << endl;
             }
-        );
+        });
+
     }
 
     void do_close() {
@@ -326,11 +336,9 @@ int main(int argc, char *argv[]) {
     #endif
 
     try {
-        boost::asio::io_context io_context;
-
         for (size_t i = 0; i < clients.size(); i++) {
             if (clients[i].is_active) {
-                make_shared<session>(io_context, i)->start();
+                make_shared<session>( i)->start();
             }
         }
 
